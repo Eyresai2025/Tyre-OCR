@@ -84,13 +84,14 @@ if image_source == "Upload Image":
 elif image_source == "Capture from Camera":
     uploaded = st.camera_input("Take a picture")
 
+# =====================================================
+# LOAD IMAGE SAFELY
+# =====================================================
+
 if uploaded is None:
     st.info("👆 Upload or capture an image to start")
     st.stop()
 
-# =====================================================
-# LOAD IMAGE SAFELY
-# =====================================================
 try:
     img = Image.open(uploaded)
 
@@ -113,6 +114,7 @@ orig_w, orig_h = img.size
 img_np = np.array(img)
 
 st.caption(f"Original image size: **{orig_w} × {orig_h}px**")
+
 
 # =====================================================
 # SCALE IMAGE FOR CANVAS
