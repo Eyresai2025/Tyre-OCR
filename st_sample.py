@@ -31,37 +31,6 @@ RESULT_DIR = os.path.join(BASE_DIR, "sample_result")
 
 
 
-# =========================
-# AUTO DOWNLOAD CRAFT MODEL
-# =========================
-import urllib.request
-import requests
-
-# Remove corrupted file if exists
-if os.path.exists(CRAFT_MODEL_PATH):
-    if os.path.getsize(CRAFT_MODEL_PATH) < 50000000:  # <50MB = corrupted
-        print("⚠ Corrupted model detected. Deleting...")
-        os.remove(CRAFT_MODEL_PATH)
-
-# Download if missing
-if not os.path.exists(CRAFT_MODEL_PATH):
-    print("⬇ Downloading CRAFT model...")
-
-    url = "https://huggingface.co/spaces/akhaliq/CRAFT/resolve/main/craft_mlt_25k.pth"
-
-    response = requests.get(url, stream=True)
-    response.raise_for_status()
-
-    with open(CRAFT_MODEL_PATH, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                f.write(chunk)
-
-    print("✅ CRAFT model downloaded successfully")
-else:
-    print("✅ CRAFT model already exists")
-
-
 
 # =========================
 # CRAFT PARAMETERS (TUNED)
@@ -272,6 +241,8 @@ def main():
     os.makedirs(RESULT_DIR, exist_ok=True)
 
     device = torch.device("cuda" if USE_CUDA and torch.cuda.is_available() else "cpu")
+    if not os.path.exists(CRAFT_MODEL_PATH):
+        raise FileNotFoundError(f"CRAFT model not found at {CRAFT_MODEL_PATH}")
 
     net = CRAFT()
     net.load_state_dict(
