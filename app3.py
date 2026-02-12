@@ -172,553 +172,325 @@ def get_image_data_url(img):
     
     
 def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_color, component_key):
-    """Create a simple mobile-optimized canvas with touch support"""
+    """Create a mobile-optimized canvas with touch support"""
     
     img_data_url = get_image_data_url(img_display)
     
-    # Create a unique ID for this canvas instance
-    canvas_id = f"simple_canvas_{component_key}"
+    # Get existing ROIs from session state
+    existing_rois = st.session_state.get('roi_objects', [])
+    existing_rois_json = json.dumps(existing_rois)
     
     canvas_html = f"""
     <div style="width: 100%; max-width: {canvas_w}px; margin: 0 auto;">
-        <div style="position: relative; width: {canvas_w}px; height: {canvas_h}px; border: 2px solid #ff4b4b; border-radius: 8px; overflow: hidden;">
-            <canvas id="{canvas_id}" width="{canvas_w}" height="{canvas_h}" 
-                    style="display: block; width: 100%; height: 100%; touch-action: none; background-color: #f0f2f6;">
-            </canvas>
-        </div>
-        
-        <div style="display: flex; gap: 10px; margin-top: 15px;">
-            <button onclick="clearROIs()" style="flex: 1; padding: 15px; background-color: #dc3545; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold;">🗑 Clear All</button>
-            <button onclick="undoROI()" style="flex: 1; padding: 15px; background-color: #6c757d; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold;">↩ Undo</button>
-        </div>
-        
-        <div id="roiDisplay" style="margin-top: 15px; padding: 15px; background-color: #e8f0fe; border-radius: 8px; text-align: center; font-size: 18px; font-weight: bold; color: #1f1f1f;">
-            📦 ROIs: <span id="roiCount">0</span>
+        <div id="canvas-component-wrapper-{component_key}">
+            <div class="canvas-container" style="position: relative; width: {canvas_w}px; height: {canvas_h}px;">
+                <canvas id="roiCanvas_{component_key}" width="{canvas_w}" height="{canvas_h}" 
+                        style="display: block; width: 100%; height: auto; border: 1px solid #ddd; border-radius: 4px; background-color: #f8f9fa;">
+                </canvas>
+            </div>
+            
+            <div class="roi-controls">
+                <button id="clearBtn_{component_key}" class="roi-button" style="background-color: #dc3545;">🗑 Clear All</button>
+                <button id="undoBtn_{component_key}" class="roi-button" style="background-color: #6c757d;">↩ Undo Last</button>
+            </div>
+            
+            <div id="roiCount_{component_key}" class="roi-count">
+                ROIs: <span id="roiCountValue_{component_key}">0</span>
+            </div>
         </div>
     </div>
     
     <script>
         (function() {{
-            const canvas = document.getElementById('{canvas_id}');
+            // Get canvas element
+            const canvas = document.getElementById('roiCanvas_{component_key}');
             const ctx = canvas.getContext('2d');
             const img = new Image();
+            img.crossOrigin = 'Anonymous';
             img.src = '{img_data_url}';
             
-            // Store ROIs
+            // State management
             let rois = [];
+            let isDrawing = false;
+            let startX, startY;
             
-            // Load image
+            // Load existing ROIs from session state
+            try {{
+                const existingRois = {existing_rois_json};
+                if (existingRois && existingRois.length > 0) {{
+                    rois = existingRois.map((roi, index) => ({{
+                        id: Date.now() + index + Math.random(),
+                        left: Number(roi.left) || 0,
+                        top: Number(roi.top) || 0,
+                        width: Number(roi.width) || 0,
+                        height: Number(roi.height) || 0,
+                        scaleX: 1,
+                        scaleY: 1,
+                        color: '{stroke_color}',
+                        stroke_width: {stroke_width}
+                    }}));
+                }}
+            }} catch (e) {{
+                console.error('Error parsing existing ROIs:', e);
+                rois = [];
+            }}
+            
+            // Load image and draw
             img.onload = function() {{
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                drawROIs();
+                drawAllROIs();
+                updateROICount();
+                sendROIData();
+            }};
+            
+            // Handle image loading errors
+            img.onerror = function() {{
+                console.error('Failed to load image');
+                ctx.fillStyle = '#f8f9fa';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#dc3545';
+                ctx.font = '14px Arial';
+                ctx.fillText('Failed to load image', 10, 50);
+                sendROIData();
             }};
             
             // Draw all ROIs
-            function drawROIs() {{
-                rois.forEach(roi => {{
-                    ctx.strokeStyle = '{stroke_color}';
-                    ctx.lineWidth = {stroke_width};
-                    ctx.strokeRect(roi.x, roi.y, roi.w, roi.h);
-                    
-                    // Add label
-                    ctx.fillStyle = '{stroke_color}';
-                    ctx.font = 'bold 14px Arial';
-                    ctx.fillText(`ROI ${{roi.id}}`, roi.x + 5, roi.y - 5);
-                }});
+            function drawAllROIs() {{
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                if (img.complete && img.naturalHeight > 0) {{
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                }}
                 
-                document.getElementById('roiCount').innerText = rois.length;
+                rois.forEach(roi => {{
+                    ctx.strokeStyle = roi.color;
+                    ctx.lineWidth = roi.stroke_width;
+                    ctx.strokeRect(roi.left, roi.top, roi.width, roi.height);
+                    
+                    // Draw corner handles
+                    ctx.fillStyle = 'white';
+                    ctx.strokeStyle = 'black';
+                    ctx.lineWidth = 1;
+                    ctx.fillRect(roi.left + roi.width - 5, roi.top + roi.height - 5, 10, 10);
+                    ctx.strokeRect(roi.left + roi.width - 5, roi.top + roi.height - 5, 10, 10);
+                }});
             }}
             
-            // Drawing state
-            let drawing = false;
-            let startX, startY;
+            // Touch events for mobile
+            canvas.addEventListener('touchstart', handleStart, {{ passive: false }});
+            canvas.addEventListener('touchmove', handleMove, {{ passive: false }});
+            canvas.addEventListener('touchend', handleEnd, {{ passive: false }});
+            canvas.addEventListener('touchcancel', handleEnd, {{ passive: false }});
             
-            // Touch events
-            canvas.addEventListener('touchstart', (e) => {{
-                e.preventDefault();
-                const rect = canvas.getBoundingClientRect();
-                const x = (e.touches[0].clientX - rect.left) * (canvas.width / rect.width);
-                const y = (e.touches[0].clientY - rect.top) * (canvas.height / rect.height);
-                
-                drawing = true;
-                startX = x;
-                startY = y;
-            }});
+            // Mouse events for desktop
+            canvas.addEventListener('mousedown', handleStart);
+            canvas.addEventListener('mousemove', handleMove);
+            canvas.addEventListener('mouseup', handleEnd);
+            canvas.addEventListener('mouseout', handleEnd);
             
-            canvas.addEventListener('touchmove', (e) => {{
-                e.preventDefault();
-                if (!drawing) return;
-                
+            // Get coordinates relative to canvas
+            function getEventPosition(e) {{
                 const rect = canvas.getBoundingClientRect();
-                const x = (e.touches[0].clientX - rect.left) * (canvas.width / rect.width);
-                const y = (e.touches[0].clientY - rect.top) * (canvas.height / rect.height);
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
                 
-                // Redraw
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                drawROIs();
+                let clientX, clientY;
+                
+                if (e.touches) {{
+                    clientX = e.touches[0].clientX;
+                    clientY = e.touches[0].clientY;
+                }} else {{
+                    clientX = e.clientX;
+                    clientY = e.clientY;
+                }}
+                
+                let x = (clientX - rect.left) * scaleX;
+                let y = (clientY - rect.top) * scaleY;
+                
+                x = Math.max(0, Math.min(x, canvas.width));
+                y = Math.max(0, Math.min(y, canvas.height));
+                
+                return {{ x, y }};
+            }}
+            
+            // Start drawing
+            function handleStart(e) {{
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const pos = getEventPosition(e);
+                isDrawing = true;
+                startX = pos.x;
+                startY = pos.y;
+            }}
+            
+            // Draw rectangle
+            function handleMove(e) {{
+                e.preventDefault();
+                e.stopPropagation();
+                
+                if (!isDrawing) return;
+                
+                const pos = getEventPosition(e);
+                
+                // Redraw canvas
+                drawAllROIs();
                 
                 // Draw current rectangle
+                const width = pos.x - startX;
+                const height = pos.y - startY;
+                
                 ctx.strokeStyle = '{stroke_color}';
                 ctx.lineWidth = {stroke_width};
-                ctx.strokeRect(startX, startY, x - startX, y - startY);
-            }});
+                ctx.strokeRect(startX, startY, width, height);
+                
+                // Show dimensions
+                ctx.fillStyle = '#000000';
+                ctx.font = '12px Arial';
+                ctx.fillText(`${{Math.abs(Math.round(width))}}x${{Math.abs(Math.round(height))}}`, 
+                            pos.x + 10, pos.y + 10);
+            }}
             
-            canvas.addEventListener('touchend', (e) => {{
+            // Stop drawing and save ROI
+            function handleEnd(e) {{
                 e.preventDefault();
-                if (!drawing) return;
+                e.stopPropagation();
                 
-                const rect = canvas.getBoundingClientRect();
-                const x = (e.changedTouches[0].clientX - rect.left) * (canvas.width / rect.width);
-                const y = (e.changedTouches[0].clientY - rect.top) * (canvas.height / rect.height);
+                if (!isDrawing) return;
                 
-                const width = x - startX;
-                const height = y - startY;
+                const pos = getEventPosition(e);
+                const width = pos.x - startX;
+                const height = pos.y - startY;
                 
-                if (Math.abs(width) > 20 && Math.abs(height) > 20) {{
+                // Only save if rectangle is large enough
+                if (Math.abs(width) > 10 && Math.abs(height) > 10) {{
                     const roi = {{
-                        id: rois.length + 1,
-                        x: width > 0 ? startX : x,
-                        y: height > 0 ? startY : y,
-                        w: Math.abs(width),
-                        h: Math.abs(height)
+                        id: Date.now() + Math.random(),
+                        left: Math.round(width > 0 ? startX : pos.x),
+                        top: Math.round(height > 0 ? startY : pos.y),
+                        width: Math.round(Math.abs(width)),
+                        height: Math.round(Math.abs(height)),
+                        scaleX: 1,
+                        scaleY: 1
                     }};
                     
                     rois.push(roi);
-                    
-                    // Send to Streamlit
-                    const roiData = rois.map(r => ({{
-                        left: Math.round(r.x),
-                        top: Math.round(r.y),
-                        width: Math.round(r.w),
-                        height: Math.round(r.h),
-                        scaleX: 1,
-                        scaleY: 1
-                    }}));
-                    
-                    // Store in sessionStorage
-                    sessionStorage.setItem('streamlit_rois', JSON.stringify(roiData));
-                    
-                    // Trigger Streamlit update
-                    if (window.Streamlit) {{
-                        window.Streamlit.setComponentValue(roiData);
-                    }}
+                    updateROICount();
+                    sendROIData();
                 }}
                 
-                // Redraw
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                drawROIs();
-                drawing = false;
-            }});
+                drawAllROIs();
+                isDrawing = false;
+            }}
             
-            canvas.addEventListener('touchcancel', (e) => {{
-                e.preventDefault();
-                drawing = false;
-            }});
-            
-            // Clear function
-            window.clearROIs = function() {{
+            // Clear all ROIs
+            function clearROIs() {{
                 rois = [];
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                document.getElementById('roiCount').innerText = '0';
-                sessionStorage.setItem('streamlit_rois', '[]');
-                if (window.Streamlit) {{
-                    window.Streamlit.setComponentValue([]);
-                }}
-            }};
+                drawAllROIs();
+                updateROICount();
+                sendROIData();
+            }}
             
-            // Undo function
-            window.undoROI = function() {{
+            // Undo last ROI
+            function undoLastROI() {{
                 rois.pop();
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                drawROIs();
-                
-                const roiData = rois.map(r => ({{
-                    left: Math.round(r.x),
-                    top: Math.round(r.y),
-                    width: Math.round(r.w),
-                    height: Math.round(r.h),
+                drawAllROIs();
+                updateROICount();
+                sendROIData();
+            }}
+            
+            // Update ROI count display
+            function updateROICount() {{
+                const countElement = document.getElementById('roiCountValue_{component_key}');
+                if (countElement) {{
+                    countElement.innerText = rois.length;
+                }}
+            }}
+            
+            // Send ROI data to Streamlit
+            function sendROIData() {{
+                const roiData = rois.map(roi => ({{
+                    left: roi.left,
+                    top: roi.top,
+                    width: roi.width,
+                    height: roi.height,
                     scaleX: 1,
                     scaleY: 1
-                }})));
+                }}));
                 
-                sessionStorage.setItem('streamlit_rois', JSON.stringify(roiData));
+                // Create a hidden input to store the data
+                let input = document.getElementById('roi_data_{component_key}');
+                if (!input) {{
+                    input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.id = 'roi_data_{component_key}';
+                    input.name = 'roi_data_{component_key}';
+                    document.body.appendChild(input);
+                }}
+                
+                // Store data as JSON string
+                input.value = JSON.stringify(roiData);
+                
+                // Dispatch change event
+                input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                
+                // Also try Streamlit's component communication
                 if (window.Streamlit) {{
                     window.Streamlit.setComponentValue(roiData);
                 }}
-            }};
+                
+                console.log('Sent ROI data:', roiData.length, 'ROIs');
+            }}
             
-            // Initialize Streamlit component
+            // Button event listeners
+            document.getElementById('clearBtn_{component_key}').addEventListener('click', function(e) {{
+                e.preventDefault();
+                clearROIs();
+            }});
+            
+            document.getElementById('undoBtn_{component_key}').addEventListener('click', function(e) {{
+                e.preventDefault();
+                undoLastROI();
+            }});
+            
+            // Set up Streamlit connection
             if (window.Streamlit) {{
                 window.Streamlit.setComponentReady();
             }}
             
-            // Check for existing ROIs
-            const savedROIs = sessionStorage.getItem('streamlit_rois');
-            if (savedROIs) {{
-                try {{
-                    const parsed = JSON.parse(savedROIs);
-                    if (parsed && parsed.length > 0) {{
-                        rois = parsed.map((r, index) => ({{
-                            id: index + 1,
-                            x: r.left,
-                            y: r.top,
-                            w: r.width,
-                            h: r.height
-                        }}));
-                        setTimeout(() => {{
-                            ctx.clearRect(0, 0, canvas.width, canvas.height);
-                            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                            drawROIs();
-                        }}, 100);
+            // Send initial data
+            setTimeout(() => {{
+                sendROIData();
+            }}, 500);
+            
+            // Create mutation observer to detect changes
+            const observer = new MutationObserver(function(mutations) {{
+                mutations.forEach(function(mutation) {{
+                    if (mutation.type === 'attributes' && mutation.attributeName === 'value') {{
+                        // Data changed, Streamlit should pick it up
                     }}
-                }} catch(e) {{}}
-            }}
+                }});
+            }});
+            
+            // Observe the hidden input
+            setTimeout(() => {{
+                const input = document.getElementById('roi_data_{component_key}');
+                if (input) {{
+                    observer.observe(input, {{ attributes: true }});
+                }}
+            }}, 100);
         }})();
     </script>
     """
     
-    components.html(canvas_html, height=canvas_h + 150, width=canvas_w + 20)
+    # Use components.html
+    components.html(
+        canvas_html, 
+        height=canvas_h + 150, 
+        width=canvas_w + 20
+    )
     
-    # Try to load ROIs from sessionStorage
-    try:
-        import json
-        import streamlit as st
-        from streamlit.web.server.websocket_headers import _get_headers
-        
-        # Check if we have ROIs in session state from previous runs
-        saved_rois = st.session_state.get('_temp_rois', None)
-        if saved_rois:
-            st.session_state.roi_objects = saved_rois
-            st.session_state._temp_rois = None
-    except:
-        pass
-    
+    # Return None - we'll handle the data through session state
     return None
-
-# def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_color, component_key):
-#     """Create a mobile-optimized canvas with touch support"""
-    
-#     img_data_url = get_image_data_url(img_display)
-    
-#     # Get existing ROIs from session state
-#     existing_rois = st.session_state.get('roi_objects', [])
-#     existing_rois_json = json.dumps(existing_rois)
-    
-#     canvas_html = f"""
-#     <div style="width: 100%; max-width: {canvas_w}px; margin: 0 auto;">
-#         <div id="canvas-component-wrapper-{component_key}">
-#             <div class="canvas-container" style="position: relative; width: {canvas_w}px; height: {canvas_h}px;">
-#                 <canvas id="roiCanvas_{component_key}" width="{canvas_w}" height="{canvas_h}" 
-#                         style="display: block; width: 100%; height: auto; border: 1px solid #ddd; border-radius: 4px; background-color: #f8f9fa;">
-#                 </canvas>
-#             </div>
-            
-#             <div class="roi-controls">
-#                 <button id="clearBtn_{component_key}" class="roi-button" style="background-color: #dc3545;">🗑 Clear All</button>
-#                 <button id="undoBtn_{component_key}" class="roi-button" style="background-color: #6c757d;">↩ Undo Last</button>
-#             </div>
-            
-#             <div id="roiCount_{component_key}" class="roi-count">
-#                 ROIs: <span id="roiCountValue_{component_key}">0</span>
-#             </div>
-#         </div>
-#     </div>
-    
-#     <script>
-#         (function() {{
-#             // Get canvas element
-#             const canvas = document.getElementById('roiCanvas_{component_key}');
-#             const ctx = canvas.getContext('2d');
-#             const img = new Image();
-#             img.crossOrigin = 'Anonymous';
-#             img.src = '{img_data_url}';
-            
-#             // State management
-#             let rois = [];
-#             let isDrawing = false;
-#             let startX, startY;
-            
-#             // Load existing ROIs from session state
-#             try {{
-#                 const existingRois = {existing_rois_json};
-#                 if (existingRois && existingRois.length > 0) {{
-#                     rois = existingRois.map((roi, index) => ({{
-#                         id: Date.now() + index + Math.random(),
-#                         left: Number(roi.left) || 0,
-#                         top: Number(roi.top) || 0,
-#                         width: Number(roi.width) || 0,
-#                         height: Number(roi.height) || 0,
-#                         scaleX: 1,
-#                         scaleY: 1,
-#                         color: '{stroke_color}',
-#                         stroke_width: {stroke_width}
-#                     }}));
-#                 }}
-#             }} catch (e) {{
-#                 console.error('Error parsing existing ROIs:', e);
-#                 rois = [];
-#             }}
-            
-#             // Load image and draw
-#             img.onload = function() {{
-#                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-#                 drawAllROIs();
-#                 updateROICount();
-#                 sendROIData();
-#             }};
-            
-#             // Handle image loading errors
-#             img.onerror = function() {{
-#                 console.error('Failed to load image');
-#                 ctx.fillStyle = '#f8f9fa';
-#                 ctx.fillRect(0, 0, canvas.width, canvas.height);
-#                 ctx.fillStyle = '#dc3545';
-#                 ctx.font = '14px Arial';
-#                 ctx.fillText('Failed to load image', 10, 50);
-#                 sendROIData();
-#             }};
-            
-#             // Draw all ROIs
-#             function drawAllROIs() {{
-#                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-#                 if (img.complete && img.naturalHeight > 0) {{
-#                     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-#                 }}
-                
-#                 rois.forEach(roi => {{
-#                     ctx.strokeStyle = roi.color;
-#                     ctx.lineWidth = roi.stroke_width;
-#                     ctx.strokeRect(roi.left, roi.top, roi.width, roi.height);
-                    
-#                     // Draw corner handles
-#                     ctx.fillStyle = 'white';
-#                     ctx.strokeStyle = 'black';
-#                     ctx.lineWidth = 1;
-#                     ctx.fillRect(roi.left + roi.width - 5, roi.top + roi.height - 5, 10, 10);
-#                     ctx.strokeRect(roi.left + roi.width - 5, roi.top + roi.height - 5, 10, 10);
-#                 }});
-#             }}
-            
-#             // Touch events for mobile
-#             canvas.addEventListener('touchstart', handleStart, {{ passive: false }});
-#             canvas.addEventListener('touchmove', handleMove, {{ passive: false }});
-#             canvas.addEventListener('touchend', handleEnd, {{ passive: false }});
-#             canvas.addEventListener('touchcancel', handleEnd, {{ passive: false }});
-            
-#             // Mouse events for desktop
-#             canvas.addEventListener('mousedown', handleStart);
-#             canvas.addEventListener('mousemove', handleMove);
-#             canvas.addEventListener('mouseup', handleEnd);
-#             canvas.addEventListener('mouseout', handleEnd);
-            
-#             // Get coordinates relative to canvas
-#             function getEventPosition(e) {{
-#                 const rect = canvas.getBoundingClientRect();
-#                 const scaleX = canvas.width / rect.width;
-#                 const scaleY = canvas.height / rect.height;
-                
-#                 let clientX, clientY;
-                
-#                 if (e.touches) {{
-#                     clientX = e.touches[0].clientX;
-#                     clientY = e.touches[0].clientY;
-#                 }} else {{
-#                     clientX = e.clientX;
-#                     clientY = e.clientY;
-#                 }}
-                
-#                 let x = (clientX - rect.left) * scaleX;
-#                 let y = (clientY - rect.top) * scaleY;
-                
-#                 x = Math.max(0, Math.min(x, canvas.width));
-#                 y = Math.max(0, Math.min(y, canvas.height));
-                
-#                 return {{ x, y }};
-#             }}
-            
-#             // Start drawing
-#             function handleStart(e) {{
-#                 e.preventDefault();
-#                 e.stopPropagation();
-                
-#                 const pos = getEventPosition(e);
-#                 isDrawing = true;
-#                 startX = pos.x;
-#                 startY = pos.y;
-#             }}
-            
-#             // Draw rectangle
-#             function handleMove(e) {{
-#                 e.preventDefault();
-#                 e.stopPropagation();
-                
-#                 if (!isDrawing) return;
-                
-#                 const pos = getEventPosition(e);
-                
-#                 // Redraw canvas
-#                 drawAllROIs();
-                
-#                 // Draw current rectangle
-#                 const width = pos.x - startX;
-#                 const height = pos.y - startY;
-                
-#                 ctx.strokeStyle = '{stroke_color}';
-#                 ctx.lineWidth = {stroke_width};
-#                 ctx.strokeRect(startX, startY, width, height);
-                
-#                 // Show dimensions
-#                 ctx.fillStyle = '#000000';
-#                 ctx.font = '12px Arial';
-#                 ctx.fillText(`${{Math.abs(Math.round(width))}}x${{Math.abs(Math.round(height))}}`, 
-#                             pos.x + 10, pos.y + 10);
-#             }}
-            
-#             // Stop drawing and save ROI
-#             function handleEnd(e) {{
-#                 e.preventDefault();
-#                 e.stopPropagation();
-                
-#                 if (!isDrawing) return;
-                
-#                 const pos = getEventPosition(e);
-#                 const width = pos.x - startX;
-#                 const height = pos.y - startY;
-                
-#                 // Only save if rectangle is large enough
-#                 if (Math.abs(width) > 10 && Math.abs(height) > 10) {{
-#                     const roi = {{
-#                         id: Date.now() + Math.random(),
-#                         left: Math.round(width > 0 ? startX : pos.x),
-#                         top: Math.round(height > 0 ? startY : pos.y),
-#                         width: Math.round(Math.abs(width)),
-#                         height: Math.round(Math.abs(height)),
-#                         scaleX: 1,
-#                         scaleY: 1
-#                     }};
-                    
-#                     rois.push(roi);
-#                     updateROICount();
-#                     sendROIData();
-#                 }}
-                
-#                 drawAllROIs();
-#                 isDrawing = false;
-#             }}
-            
-#             // Clear all ROIs
-#             function clearROIs() {{
-#                 rois = [];
-#                 drawAllROIs();
-#                 updateROICount();
-#                 sendROIData();
-#             }}
-            
-#             // Undo last ROI
-#             function undoLastROI() {{
-#                 rois.pop();
-#                 drawAllROIs();
-#                 updateROICount();
-#                 sendROIData();
-#             }}
-            
-#             // Update ROI count display
-#             function updateROICount() {{
-#                 const countElement = document.getElementById('roiCountValue_{component_key}');
-#                 if (countElement) {{
-#                     countElement.innerText = rois.length;
-#                 }}
-#             }}
-            
-#             // Send ROI data to Streamlit
-#             function sendROIData() {{
-#                 const roiData = rois.map(roi => ({{
-#                     left: roi.left,
-#                     top: roi.top,
-#                     width: roi.width,
-#                     height: roi.height,
-#                     scaleX: 1,
-#                     scaleY: 1
-#                 }}));
-                
-#                 // Create a hidden input to store the data
-#                 let input = document.getElementById('roi_data_{component_key}');
-#                 if (!input) {{
-#                     input = document.createElement('input');
-#                     input.type = 'hidden';
-#                     input.id = 'roi_data_{component_key}';
-#                     input.name = 'roi_data_{component_key}';
-#                     document.body.appendChild(input);
-#                 }}
-                
-#                 // Store data as JSON string
-#                 input.value = JSON.stringify(roiData);
-                
-#                 // Dispatch change event
-#                 input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                
-#                 // Also try Streamlit's component communication
-#                 if (window.Streamlit) {{
-#                     window.Streamlit.setComponentValue(roiData);
-#                 }}
-                
-#                 console.log('Sent ROI data:', roiData.length, 'ROIs');
-#             }}
-            
-#             // Button event listeners
-#             document.getElementById('clearBtn_{component_key}').addEventListener('click', function(e) {{
-#                 e.preventDefault();
-#                 clearROIs();
-#             }});
-            
-#             document.getElementById('undoBtn_{component_key}').addEventListener('click', function(e) {{
-#                 e.preventDefault();
-#                 undoLastROI();
-#             }});
-            
-#             // Set up Streamlit connection
-#             if (window.Streamlit) {{
-#                 window.Streamlit.setComponentReady();
-#             }}
-            
-#             // Send initial data
-#             setTimeout(() => {{
-#                 sendROIData();
-#             }}, 500);
-            
-#             // Create mutation observer to detect changes
-#             const observer = new MutationObserver(function(mutations) {{
-#                 mutations.forEach(function(mutation) {{
-#                     if (mutation.type === 'attributes' && mutation.attributeName === 'value') {{
-#                         // Data changed, Streamlit should pick it up
-#                     }}
-#                 }});
-#             }});
-            
-#             // Observe the hidden input
-#             setTimeout(() => {{
-#                 const input = document.getElementById('roi_data_{component_key}');
-#                 if (input) {{
-#                     observer.observe(input, {{ attributes: true }});
-#                 }}
-#             }}, 100);
-#         }})();
-#     </script>
-#     """
-    
-#     # Use components.html
-#     components.html(
-#         canvas_html, 
-#         height=canvas_h + 150, 
-#         width=canvas_w + 20
-#     )
-    
-#     # Return None - we'll handle the data through session state
-#     return None
 
 # =====================================================
 # IMAGE SOURCE (Upload or Camera)
@@ -793,26 +565,6 @@ else:
 # =====================================================
 st.subheader("Draw ROIs")
 
-# Check for ROI data from form submission (for mobile canvas) - COMPATIBLE VERSION
-if is_mobile:
-    # Try to get ROI data from various sources
-    try:
-        # Try query params if available (newer Streamlit)
-        if hasattr(st, 'query_params'):
-            roi_data = st.query_params.get("roi_data")
-            if roi_data:
-                import json
-                try:
-                    new_rois = json.loads(roi_data)
-                    if new_rois and len(new_rois) > 0:
-                        st.session_state.roi_objects = new_rois
-                    if hasattr(st.query_params, 'clear'):
-                        st.query_params.clear()
-                except:
-                    pass
-    except:
-        pass
-
 # Add reset button for canvas
 col1, col2 = st.columns([3, 1])
 with col2:
@@ -823,7 +575,7 @@ with col2:
 
 if is_mobile:
     # Use mobile-optimized canvas
-    create_mobile_canvas(
+    canvas_result = create_mobile_canvas(
         img_display, 
         canvas_w, 
         canvas_h, 
@@ -832,79 +584,21 @@ if is_mobile:
         st.session_state.canvas_key
     )
     
-    # Add a button to manually check for ROIs from session storage
-    col1, col2, col3 = st.columns(3)
-    with col2:
-        if st.button("🔄 Load ROIs from Canvas", use_container_width=True):
-            st.rerun()
-    
-    # Use session state for objects
-    objects = st.session_state.roi_objects
-    
-else:
-    # Use original canvas for desktop
-    canvas = st_canvas(
-        background_image=img_display,
-        height=canvas_h,
-        width=canvas_w,
-        drawing_mode="rect",
-        stroke_width=stroke_width,
-        stroke_color=stroke_color,
-        fill_color="rgba(0,0,0,0)",
-        update_streamlit=True,
-        key=f"roi_canvas_{st.session_state.canvas_key}",
-        display_toolbar=True,
-    )
-    
-    # Safe JSON extraction
-    objects = []
-    if canvas.json_data and "objects" in canvas.json_data:
-        objects = canvas.json_data["objects"]
-        st.session_state.roi_objects = objects
-
-# Display ROI count and controls
-col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-
-with col1:
-    roi_count = len(st.session_state.roi_objects)
-    st.info(f"📦 **{roi_count} ROI(s) drawn**")
-    
-    # Debug display
-    with st.expander("Debug: View ROI Data"):
-        st.json(st.session_state.roi_objects)
-
-with col2:
-    if st.button("🗑 Clear All", use_container_width=True):
-        st.session_state.roi_objects = []
-        st.session_state.canvas_key += 1
-        st.rerun()
-
-with col3:
-    if st.button("↩ Undo Last", use_container_width=True) and st.session_state.roi_objects:
-        st.session_state.roi_objects = st.session_state.roi_objects[:-1]
-        st.session_state.canvas_key += 1
-        st.rerun()
-
-with col4:
-    if st.button("🔄 Refresh", use_container_width=True):
-        st.rerun()
-
-# Keep the manual ROI entry as a fallback
-if is_mobile:
-    with st.expander("📝 Manual ROI Entry (Fallback)", expanded=False):
-        st.markdown("If drawing doesn't work, use this fallback method:")
+    # Add a manual ROI input section for mobile
+    with st.expander("📝 Manual ROI Entry (Alternative for Mobile)", expanded=False):
+        st.markdown("If drawing doesn't work, enter ROI coordinates manually:")
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            x1 = st.number_input("X1", 0, canvas_w, 0, key=f"manual_x1_{st.session_state.canvas_key}")
+            x1 = st.number_input("X1", 0, canvas_w, 0, key="manual_x1")
         with col2:
-            y1 = st.number_input("Y1", 0, canvas_h, 0, key=f"manual_y1_{st.session_state.canvas_key}")
+            y1 = st.number_input("Y1", 0, canvas_h, 0, key="manual_y1")
         with col3:
-            x2 = st.number_input("X2", 0, canvas_w, canvas_w, key=f"manual_x2_{st.session_state.canvas_key}")
+            x2 = st.number_input("X2", 0, canvas_w, canvas_w, key="manual_x2")
         with col4:
-            y2 = st.number_input("Y2", 0, canvas_h, canvas_h, key=f"manual_y2_{st.session_state.canvas_key}")
+            y2 = st.number_input("Y2", 0, canvas_h, canvas_h, key="manual_y2")
         
-        if st.button("➕ Add Manual ROI", use_container_width=True, key=f"add_manual_{st.session_state.canvas_key}"):
+        if st.button("➕ Add Manual ROI", use_container_width=True):
             new_roi = {
                 "left": min(x1, x2),
                 "top": min(y1, y2),
