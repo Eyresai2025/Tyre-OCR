@@ -116,7 +116,15 @@ if uploaded is not None:
     # =====================================================
     # SCALE IMAGE FOR CANVAS (MOVED INSIDE)
     # =====================================================
-    MAX_CANVAS_WIDTH = 600
+    user_agent = st.runtime.scriptrunner.script_run_context.get_script_run_ctx().session_info.user_agent if hasattr(st.runtime.scriptrunner.script_run_context.get_script_run_ctx().session_info, "user_agent") else ""
+
+    is_mobile = "Android" in user_agent or "iPhone" in user_agent
+
+    if is_mobile:
+        MAX_CANVAS_WIDTH = 450   # Smaller for mobile
+    else:
+        MAX_CANVAS_WIDTH = 900   # Bigger for desktop
+
     canvas_w = min(orig_w, MAX_CANVAS_WIDTH)
 
     scale = canvas_w / orig_w
@@ -129,6 +137,13 @@ else:
     st.stop()
 
 
+st.markdown("""
+<style>
+canvas {
+    touch-action: none !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # =====================================================
 # DRAW ROI CANVAS
@@ -141,9 +156,9 @@ canvas = st_canvas(
     stroke_width=stroke_width,
     stroke_color=stroke_color,
     fill_color="rgba(0,0,0,0)",
-    update_streamlit=True,
+    update_streamlit=False,
     key="roi_canvas",
-    display_toolbar=False,
+    display_toolbar=True,
 
 )
 
