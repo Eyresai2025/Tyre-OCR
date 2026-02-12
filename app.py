@@ -26,6 +26,14 @@ st.set_page_config(
 )
 st.title("ROI → OCR (CRAFT + OCR)")
 
+st.markdown("""
+<style>
+body {
+    touch-action: none;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # =====================================================
 # ROI DIRECTORY
 # =====================================================
@@ -88,42 +96,56 @@ elif image_source == "Capture from Camera":
 # LOAD IMAGE SAFELY
 # =====================================================
 
-if uploaded is None:
+if uploaded is not None:
+
+    try:
+        img = Image.open(uploaded)
+
+        if keep_exif:
+            img = ImageOps.exif_transpose(img)
+
+        img = img.convert("RGB")
+
+        # Re-encode to avoid Streamlit canvas crashes
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        img = Image.open(buf).convert("RGB")
+
+    except Exception as e:
+        st.error(f"Failed to load image: {e}")
+        st.stop()
+
+    orig_w, orig_h = img.size
+    img_np = np.array(img)
+
+    st.caption(f"Original image size: **{orig_w} × {orig_h}px**")
+
+else:
     st.info("👆 Upload or capture an image to start")
     st.stop()
 
-try:
-    img = Image.open(uploaded)
-
-    if keep_exif:
-        img = ImageOps.exif_transpose(img)
-
-    img = img.convert("RGB")
-
-    # Re-encode to avoid Streamlit canvas crashes
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    img = Image.open(buf).convert("RGB")
-
-except Exception as e:
-    st.error(f"Failed to load image: {e}")
-    st.stop()
-
-orig_w, orig_h = img.size
-img_np = np.array(img)
-
-st.caption(f"Original image size: **{orig_w} × {orig_h}px**")
 
 
 # =====================================================
-# SCALE IMAGE FOR CANVAS
+# SCALE IMAGE FOR CANVAS (Laptop + Mobile Friendly)
 # =====================================================
-scale = min(1.0, max_canvas_width / orig_w)
-canvas_w = int(orig_w * scale)
+
+# Set a safe max width that works on both laptop & mobile
+MAX_CANVAS_WIDTH = 900  # Good balance for both devices
+
+# Ensure we never exceed original width
+canvas_w = min(orig_w, MAX_CANVAS_WIDTH)
+
+# Calculate scale
+scale = canvas_w / orig_w
+
+# Maintain aspect ratio
 canvas_h = int(orig_h * scale)
 
+# Resize image
 img_display = img.resize((canvas_w, canvas_h), Image.BILINEAR)
+
 
 # =====================================================
 # DRAW ROI CANVAS
@@ -138,6 +160,8 @@ canvas = st_canvas(
     fill_color="rgba(0,0,0,0)",
     update_streamlit=True,
     key="roi_canvas",
+    display_toolbar=True,
+
 )
 
 # Safe JSON extraction
