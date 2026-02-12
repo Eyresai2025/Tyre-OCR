@@ -116,21 +116,16 @@ if uploaded is not None:
     # =====================================================
     # SCALE IMAGE FOR CANVAS (MOVED INSIDE)
     # =====================================================
-    user_agent = st.runtime.scriptrunner.script_run_context.get_script_run_ctx().session_info.user_agent if hasattr(st.runtime.scriptrunner.script_run_context.get_script_run_ctx().session_info, "user_agent") else ""
 
-    is_mobile = "Android" in user_agent or "iPhone" in user_agent
 
-    if is_mobile:
-        MAX_CANVAS_WIDTH = 450   # Smaller for mobile
-    else:
-        MAX_CANVAS_WIDTH = 900   # Bigger for desktop
+    MAX_CANVAS_WIDTH = min(orig_w, 700)  # Safe for both desktop & mobile
 
-    canvas_w = min(orig_w, MAX_CANVAS_WIDTH)
-
+    canvas_w = MAX_CANVAS_WIDTH
     scale = canvas_w / orig_w
     canvas_h = int(orig_h * scale)
 
     img_display = img.resize((canvas_w, canvas_h), Image.BILINEAR)
+
 
 else:
     st.info("👆 Upload or capture an image to start")
