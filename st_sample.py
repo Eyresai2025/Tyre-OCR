@@ -33,14 +33,14 @@ RESULT_DIR = os.path.join(BASE_DIR, "sample_result")
 # AUTO DOWNLOAD CRAFT MODEL
 # =========================
 import urllib.request
-
+import requests
 if not os.path.exists(CRAFT_MODEL_PATH):
     print("⬇ Downloading CRAFT model...")
-    url = "https://github.com/clovaai/CRAFT-pytorch/releases/download/v1.0/craft_mlt_25k.pth"
-    urllib.request.urlretrieve(url, CRAFT_MODEL_PATH)
+    url = "https://github.com/clovaai/CRAFT-pytorch/releases/download/v0.1/craft_mlt_25k.pth"
+    r = requests.get(url)
+    with open(CRAFT_MODEL_PATH, "wb") as f:
+        f.write(r.content)
     print("✅ CRAFT model downloaded")
-else:
-    print("✅ CRAFT model already exists")
 
 # =========================
 # CRAFT PARAMETERS (TUNED)
