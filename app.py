@@ -13,6 +13,7 @@ from io import BytesIO
 import pandas as pd
 import streamlit.components.v1 as components
 import base64
+import json
 
 # =====================================================
 # BASE PATH
@@ -78,6 +79,7 @@ st.markdown("""
         display: flex;
         gap: 10px;
         margin-top: 10px;
+        margin-bottom: 10px;
         flex-wrap: wrap;
     }
     
@@ -85,24 +87,34 @@ st.markdown("""
         background-color: #ff4b4b;
         color: white;
         border: none;
-        padding: 10px 20px;
+        padding: 12px 20px;
         border-radius: 5px;
         cursor: pointer;
-        font-size: 14px;
+        font-size: 16px;
         flex: 1;
         min-width: 120px;
+        font-weight: bold;
     }
     
     .roi-button:hover {
         background-color: #ff3333;
     }
     
+    #clearBtn {
+        background-color: #dc3545;
+    }
+    
+    #undoBtn {
+        background-color: #6c757d;
+    }
+    
     .roi-count {
         background-color: #f0f2f6;
-        padding: 10px;
+        padding: 12px;
         border-radius: 5px;
         text-align: center;
         font-weight: bold;
+        font-size: 16px;
         margin-top: 10px;
     }
 </style>
@@ -158,26 +170,32 @@ def get_image_data_url(img):
         st.error(f"Error converting image: {e}")
         return ""
 
-def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_color):
+def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_color, component_key):
     """Create a mobile-optimized canvas with touch support"""
     
     img_data_url = get_image_data_url(img_display)
     
+    # Get existing ROIs from session state
+    existing_rois = st.session_state.get('roi_objects', [])
+    existing_rois_json = json.dumps(existing_rois)
+    
     canvas_html = f"""
     <div style="width: 100%; max-width: {canvas_w}px; margin: 0 auto;">
-        <div class="canvas-container" style="position: relative; width: {canvas_w}px; height: {canvas_h}px;">
-            <canvas id="roiCanvas" width="{canvas_w}" height="{canvas_h}" 
-                    style="display: block; width: 100%; height: auto; border: 1px solid #ddd; border-radius: 4px;">
-            </canvas>
-        </div>
-        
-        <div class="roi-controls">
-            <button id="clearBtn" class="roi-button" style="background-color: #dc3545;">🗑 Clear All</button>
-            <button id="undoBtn" class="roi-button" style="background-color: #6c757d;">↩ Undo Last</button>
-        </div>
-        
-        <div id="roiCount" class="roi-count">
-            ROIs: <span id="roiCountValue">0</span>
+        <div id="canvas-component-wrapper">
+            <div class="canvas-container" style="position: relative; width: {canvas_w}px; height: {canvas_h}px;">
+                <canvas id="roiCanvas" width="{canvas_w}" height="{canvas_h}" 
+                        style="display: block; width: 100%; height: auto; border: 1px solid #ddd; border-radius: 4px;">
+                </canvas>
+            </div>
+            
+            <div class="roi-controls">
+                <button id="clearBtn" class="roi-button" style="background-color: #dc3545;">🗑 Clear All</button>
+                <button id="undoBtn" class="roi-button" style="background-color: #6c757d;">↩ Undo Last</button>
+            </div>
+            
+            <div id="roiCount" class="roi-count">
+                ROIs: <span id="roiCountValue">0</span>
+            </div>
         </div>
     </div>
     
@@ -192,11 +210,31 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
         let rois = [];
         let isDrawing = false;
         let startX, startY;
-        let currentRect = null;
+        
+        // Load existing ROIs
+        const existingRois = {existing_rois_json};
+        if (existingRois && existingRois.length > 0) {{
+            rois = existingRois.map((roi, index) => ({{
+                id: Date.now() + index,
+                x: roi.left,
+                y: roi.top,
+                w: roi.width,
+                h: roi.height,
+                color: roi.color || '{stroke_color}',
+                width: roi.stroke_width || {stroke_width}
+            }}));
+        }}
         
         // Load image and draw
         img.onload = function() {{
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            // Draw existing ROIs
+            rois.forEach(roi => {{
+                ctx.strokeStyle = roi.color;
+                ctx.lineWidth = roi.width;
+                ctx.strokeRect(roi.x, roi.y, roi.w, roi.h);
+            }});
+            updateROICount();
         }};
         
         // Handle image loading errors
@@ -220,14 +258,6 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
         canvas.addEventListener('mousemove', handleMove);
         canvas.addEventListener('mouseup', handleEnd);
         canvas.addEventListener('mouseout', handleEnd);
-        
-        // Prevent default touch behaviors
-        function preventDefault(e) {{
-            e.preventDefault();
-        }}
-        
-        canvas.addEventListener('touchstart', preventDefault, {{ passive: false }});
-        canvas.addEventListener('touchmove', preventDefault, {{ passive: false }});
         
         // Get coordinates relative to canvas
         function getEventPosition(e) {{
@@ -266,7 +296,6 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
             isDrawing = true;
             startX = pos.x;
             startY = pos.y;
-            currentRect = null;
         }}
         
         // Draw rectangle
@@ -284,16 +313,9 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
             
             // Draw existing ROIs
             rois.forEach(roi => {{
-                ctx.strokeStyle = roi.color || '{stroke_color}';
-                ctx.lineWidth = roi.width || {stroke_width};
+                ctx.strokeStyle = roi.color;
+                ctx.lineWidth = roi.width;
                 ctx.strokeRect(roi.x, roi.y, roi.w, roi.h);
-                
-                // Draw resize handle
-                ctx.fillStyle = '#ffffff';
-                ctx.strokeStyle = '#000000';
-                ctx.lineWidth = 1;
-                ctx.fillRect(roi.x + roi.w - 5, roi.y + roi.h - 5, 10, 10);
-                ctx.strokeRect(roi.x + roi.w - 5, roi.y + roi.h - 5, 10, 10);
             }});
             
             // Draw current rectangle
@@ -326,12 +348,14 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
             if (Math.abs(width) > 10 && Math.abs(height) > 10) {{
                 const roi = {{
                     id: Date.now() + Math.random(),
-                    x: width > 0 ? startX : pos.x,
-                    y: height > 0 ? startY : pos.y,
-                    w: Math.abs(width),
-                    h: Math.abs(height),
+                    left: width > 0 ? startX : pos.x,
+                    top: height > 0 ? startY : pos.y,
+                    width: Math.abs(width),
+                    height: Math.abs(height),
+                    scaleX: 1,
+                    scaleY: 1,
                     color: '{stroke_color}',
-                    width: {stroke_width}
+                    stroke_width: {stroke_width}
                 }};
                 
                 rois.push(roi);
@@ -345,8 +369,8 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
             
             rois.forEach(roi => {{
                 ctx.strokeStyle = roi.color;
-                ctx.lineWidth = roi.width;
-                ctx.strokeRect(roi.x, roi.y, roi.w, roi.h);
+                ctx.lineWidth = roi.stroke_width;
+                ctx.strokeRect(roi.left, roi.top, roi.width, roi.height);
             }});
             
             isDrawing = false;
@@ -369,8 +393,8 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
             
             rois.forEach(roi => {{
                 ctx.strokeStyle = roi.color;
-                ctx.lineWidth = roi.width;
-                ctx.strokeRect(roi.x, roi.y, roi.w, roi.h);
+                ctx.lineWidth = roi.stroke_width;
+                ctx.strokeRect(roi.left, roi.top, roi.width, roi.height);
             }});
             
             updateROICount();
@@ -384,20 +408,25 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
         
         // Send ROI data to Streamlit
         function sendROIData() {{
-            const roiData = rois.map((roi, index) => ({{
-                left: roi.x,
-                top: roi.y,
-                width: roi.w,
-                height: roi.h,
+            const roiData = rois.map(roi => ({{
+                left: roi.left,
+                top: roi.top,
+                width: roi.width,
+                height: roi.height,
                 scaleX: 1,
                 scaleY: 1
             }}));
             
-            // Send to Streamlit
-            window.parent.postMessage({{
-                type: 'streamlit:setComponentValue',
-                data: {{objects: roiData}}
-            }}, '*');
+            // Send to Streamlit using Streamlit's setComponentValue
+            if (window.Streamlit) {{
+                window.Streamlit.setComponentValue(roiData);
+            }} else {{
+                // Fallback for older versions
+                window.parent.postMessage({{
+                    type: 'streamlit:setComponentValue',
+                    data: roiData
+                }}, '*');
+            }}
         }}
         
         // Button event listeners
@@ -411,28 +440,45 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
             undoLastROI();
         }});
         
-        // Handle window resize
-        window.addEventListener('resize', function() {{
-            // Redraw to maintain aspect ratio
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            rois.forEach(roi => {{
-                ctx.strokeStyle = roi.color;
-                ctx.lineWidth = roi.width;
-                ctx.strokeRect(roi.x, roi.y, roi.w, roi.h);
-            }});
-        }});
+        // Initialize Streamlit component
+        function sendValue(value) {{
+            if (window.Streamlit) {{
+                window.Streamlit.setComponentValue(value);
+            }}
+        }}
         
-        // Initialize with empty data
-        sendROIData();
+        // Set up Streamlit connection
+        if (window.Streamlit) {{
+            window.Streamlit.setComponentReady();
+        }}
+        
+        // Send initial data
+        setTimeout(() => {{
+            sendROIData();
+        }}, 500);
     </script>
     """
     
-    return components.html(canvas_html, height=canvas_h + 120, width=canvas_w + 20)
+    # Use components.html with a unique key
+    component_value = components.html(
+        canvas_html, 
+        height=canvas_h + 150, 
+        width=canvas_w + 20,
+        key=f"mobile_canvas_{component_key}"
+    )
+    
+    return component_value
 
 # =====================================================
 # IMAGE SOURCE (Upload or Camera)
 # =====================================================
 st.subheader("Select Image Source")
+
+# Initialize session state for ROI objects if not exists
+if 'roi_objects' not in st.session_state:
+    st.session_state.roi_objects = []
+if 'canvas_key' not in st.session_state:
+    st.session_state.canvas_key = 0
 
 image_source = st.radio(
     "Choose input method:",
@@ -496,17 +542,31 @@ else:
 # =====================================================
 st.subheader("Draw ROIs")
 
-# Initialize session state for ROI objects
-if 'roi_objects' not in st.session_state:
-    st.session_state.roi_objects = []
+# Add reset button for canvas
+col1, col2 = st.columns([3, 1])
+with col2:
+    if st.button("🔄 Reset Canvas", use_container_width=True):
+        st.session_state.roi_objects = []
+        st.session_state.canvas_key += 1
+        st.rerun()
 
 if is_mobile:
-    # Use mobile-optimized canvas
-    canvas_result = create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_color)
+    # Use mobile-optimized canvas with unique key
+    canvas_result = create_mobile_canvas(
+        img_display, 
+        canvas_w, 
+        canvas_h, 
+        stroke_width, 
+        stroke_color,
+        st.session_state.canvas_key
+    )
     
-    # Get objects from the canvas component
-    if canvas_result and isinstance(canvas_result, dict):
-        st.session_state.roi_objects = canvas_result.get("objects", [])
+    # Update session state with canvas result
+    if canvas_result is not None:
+        if isinstance(canvas_result, list):
+            st.session_state.roi_objects = canvas_result
+        elif isinstance(canvas_result, dict) and "objects" in canvas_result:
+            st.session_state.roi_objects = canvas_result["objects"]
     
     objects = st.session_state.roi_objects
     
@@ -521,7 +581,7 @@ else:
         stroke_color=stroke_color,
         fill_color="rgba(0,0,0,0)",
         update_streamlit=True,
-        key="roi_canvas",
+        key=f"roi_canvas_{st.session_state.canvas_key}",
         display_toolbar=True,
     )
     
@@ -531,29 +591,39 @@ else:
         objects = canvas.json_data["objects"]
         st.session_state.roi_objects = objects
 
-# Display ROI count
-col1, col2, col3 = st.columns(3)
+# Display ROI count and controls
+col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+
 with col1:
-    st.info(f"📦 **{len(objects)} ROI(s) drawn**")
+    roi_count = len(st.session_state.roi_objects)
+    st.info(f"📦 **{roi_count} ROI(s) drawn**")
+    
+    # Debug display (remove in production)
+    with st.expander("Debug: View ROI Data"):
+        st.json(st.session_state.roi_objects)
+
 with col2:
-    if st.button("🗑 Clear All ROIs", use_container_width=True):
+    if st.button("🗑 Clear All", use_container_width=True):
         st.session_state.roi_objects = []
-        if not is_mobile:
-            st.session_state.roi_canvas.json_data = {"objects": []}
+        st.session_state.canvas_key += 1
         st.rerun()
+
 with col3:
-    if st.button("↩ Undo Last ROI", use_container_width=True) and objects:
-        st.session_state.roi_objects = objects[:-1]
-        if not is_mobile:
-            st.session_state.roi_canvas.json_data = {"objects": objects[:-1]}
+    if st.button("↩ Undo Last", use_container_width=True) and st.session_state.roi_objects:
+        st.session_state.roi_objects = st.session_state.roi_objects[:-1]
+        st.session_state.canvas_key += 1
+        st.rerun()
+
+with col4:
+    if st.button("🔄 Refresh", use_container_width=True):
         st.rerun()
 
 # =====================================================
 # RUN PIPELINE
 # =====================================================
-if st.button("🚀 Run CRAFT + OCR + Restitch", use_container_width=True):
+if st.button("🚀 Run CRAFT + OCR + Restitch", use_container_width=True, type="primary"):
 
-    if not objects:
+    if not st.session_state.roi_objects:
         st.warning("⚠️ Draw at least one ROI")
         st.stop()
 
@@ -571,7 +641,7 @@ if st.button("🚀 Run CRAFT + OCR + Restitch", use_container_width=True):
     # SAVE ROIs
     # -------------------------------------------------
     saved_count = 0
-    for roi_id, obj in enumerate(objects, start=1):
+    for roi_id, obj in enumerate(st.session_state.roi_objects, start=1):
         try:
             left = int(obj["left"] / scale)
             top = int(obj["top"] / scale)
@@ -607,18 +677,26 @@ if st.button("🚀 Run CRAFT + OCR + Restitch", use_container_width=True):
 
     with st.spinner("🔄 Running CRAFT text detection and OCR..."):
         try:
-            subprocess.run(
+            result = subprocess.run(
                 [sys.executable, os.path.join(BASE_DIR, "st_sample.py"), ROI_DIR],
                 check=True,
                 capture_output=True,
                 text=True
             )
             st.success("✅ Pipeline completed successfully 🎉")
+            
+            # Show output if any
+            if result.stdout:
+                with st.expander("View pipeline output"):
+                    st.code(result.stdout)
 
         except subprocess.CalledProcessError as e:
             st.error("❌ Pipeline failed")
             with st.expander("View error details"):
                 st.code(e.stdout if e.stdout else e.stderr)
+            st.stop()
+        except FileNotFoundError:
+            st.error(f"❌ Could not find st_sample.py at {os.path.join(BASE_DIR, 'st_sample.py')}")
             st.stop()
 
     # -------------------------------------------------
@@ -652,7 +730,7 @@ if st.button("🚀 Run CRAFT + OCR + Restitch", use_container_width=True):
     stitched_excel_path = os.path.join(ROI_DIR, "stitched", "stitched_output.xlsx")
 
     if os.path.exists(stitched_excel_path):
-        st.subheader("Stitched Excel Output")
+        st.subheader("📊 Stitched Excel Output")
 
         try:
             df = pd.read_excel(stitched_excel_path)
@@ -677,15 +755,17 @@ if is_mobile:
     with st.expander("📱 Mobile Drawing Instructions"):
         st.markdown("""
         **How to draw ROIs on mobile:**
-        1. **Tap** to start drawing a rectangle
+        1. **Tap and hold** to start drawing a rectangle
         2. **Drag** to draw the rectangle
         3. **Release** to complete the ROI
-        4. Use **Clear All** to remove all ROIs
-        5. Use **Undo Last** to remove the last ROI
+        4. The ROI count should increase immediately
+        5. Use **Clear All** to remove all ROIs
+        6. Use **Undo Last** to remove the last ROI
+        7. Use **Refresh** if ROIs don't appear
         
-        **Tips:**
-        - Draw slowly for better accuracy
+        **Troubleshooting:**
+        - If ROIs aren't saving, tap the **Refresh** button
+        - Check the Debug section to see if ROI data is captured
         - Make sure your ROI is at least 10x10 pixels
-        - You can draw multiple ROIs on the same image
-        - The ROI color and border width can be adjusted in the sidebar
+        - Try drawing slower for better accuracy
         """)
