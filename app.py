@@ -26,13 +26,6 @@ st.set_page_config(
 )
 st.title("ROI → OCR (CRAFT + OCR)")
 
-st.markdown("""
-<style>
-body {
-    touch-action: none;
-}
-</style>
-""", unsafe_allow_html=True)
 
 # =====================================================
 # ROI DIRECTORY
@@ -123,8 +116,9 @@ if uploaded is not None:
     # =====================================================
     # SCALE IMAGE FOR CANVAS (MOVED INSIDE)
     # =====================================================
-    MAX_CANVAS_WIDTH = 900
+    MAX_CANVAS_WIDTH = 600
     canvas_w = min(orig_w, MAX_CANVAS_WIDTH)
+
     scale = canvas_w / orig_w
     canvas_h = int(orig_h * scale)
 
@@ -149,7 +143,7 @@ canvas = st_canvas(
     fill_color="rgba(0,0,0,0)",
     update_streamlit=True,
     key="roi_canvas",
-    display_toolbar=True,
+    display_toolbar=False,
 
 )
 
