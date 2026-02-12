@@ -181,27 +181,27 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
     
     canvas_html = f"""
     <div style="width: 100%; max-width: {canvas_w}px; margin: 0 auto;">
-        <div id="canvas-component-wrapper">
+        <div id="canvas-component-wrapper-{component_key}">
             <div class="canvas-container" style="position: relative; width: {canvas_w}px; height: {canvas_h}px;">
-                <canvas id="roiCanvas" width="{canvas_w}" height="{canvas_h}" 
+                <canvas id="roiCanvas_{component_key}" width="{canvas_w}" height="{canvas_h}" 
                         style="display: block; width: 100%; height: auto; border: 1px solid #ddd; border-radius: 4px;">
                 </canvas>
             </div>
             
             <div class="roi-controls">
-                <button id="clearBtn" class="roi-button" style="background-color: #dc3545;">🗑 Clear All</button>
-                <button id="undoBtn" class="roi-button" style="background-color: #6c757d;">↩ Undo Last</button>
+                <button id="clearBtn_{component_key}" class="roi-button" style="background-color: #dc3545;">🗑 Clear All</button>
+                <button id="undoBtn_{component_key}" class="roi-button" style="background-color: #6c757d;">↩ Undo Last</button>
             </div>
             
-            <div id="roiCount" class="roi-count">
-                ROIs: <span id="roiCountValue">0</span>
+            <div id="roiCount_{component_key}" class="roi-count">
+                ROIs: <span id="roiCountValue_{component_key}">0</span>
             </div>
         </div>
     </div>
     
     <script>
-        // Initialize canvas
-        const canvas = document.getElementById('roiCanvas');
+        // Initialize canvas with unique ID
+        const canvas = document.getElementById('roiCanvas_{component_key}');
         const ctx = canvas.getContext('2d');
         const img = new Image();
         img.src = '{img_data_url}';
@@ -216,12 +216,14 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
         if (existingRois && existingRois.length > 0) {{
             rois = existingRois.map((roi, index) => ({{
                 id: Date.now() + index,
-                x: roi.left,
-                y: roi.top,
-                w: roi.width,
-                h: roi.height,
+                left: roi.left,
+                top: roi.top,
+                width: roi.width,
+                height: roi.height,
+                scaleX: 1,
+                scaleY: 1,
                 color: roi.color || '{stroke_color}',
-                width: roi.stroke_width || {stroke_width}
+                stroke_width: roi.stroke_width || {stroke_width}
             }}));
         }}
         
@@ -231,8 +233,8 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
             // Draw existing ROIs
             rois.forEach(roi => {{
                 ctx.strokeStyle = roi.color;
-                ctx.lineWidth = roi.width;
-                ctx.strokeRect(roi.x, roi.y, roi.w, roi.h);
+                ctx.lineWidth = roi.stroke_width;
+                ctx.strokeRect(roi.left, roi.top, roi.width, roi.height);
             }});
             updateROICount();
         }};
@@ -314,8 +316,8 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
             // Draw existing ROIs
             rois.forEach(roi => {{
                 ctx.strokeStyle = roi.color;
-                ctx.lineWidth = roi.width;
-                ctx.strokeRect(roi.x, roi.y, roi.w, roi.h);
+                ctx.lineWidth = roi.stroke_width;
+                ctx.strokeRect(roi.left, roi.top, roi.width, roi.height);
             }});
             
             // Draw current rectangle
@@ -403,7 +405,10 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
         
         // Update ROI count display
         function updateROICount() {{
-            document.getElementById('roiCountValue').innerText = rois.length;
+            const countElement = document.getElementById('roiCountValue_{component_key}');
+            if (countElement) {{
+                countElement.innerText = rois.length;
+            }}
         }}
         
         // Send ROI data to Streamlit
@@ -418,34 +423,27 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
             }}));
             
             // Send to Streamlit using Streamlit's setComponentValue
+            const data = {{ 
+                objects: roiData,
+                length: roiData.length 
+            }};
+            
+            // Use Streamlit's component communication
             if (window.Streamlit) {{
-                window.Streamlit.setComponentValue(roiData);
-            }} else {{
-                // Fallback for older versions
-                window.parent.postMessage({{
-                    type: 'streamlit:setComponentValue',
-                    data: roiData
-                }}, '*');
+                window.Streamlit.setComponentValue(data);
             }}
         }}
         
-        // Button event listeners
-        document.getElementById('clearBtn').addEventListener('click', function(e) {{
+        // Button event listeners with unique IDs
+        document.getElementById('clearBtn_{component_key}').addEventListener('click', function(e) {{
             e.preventDefault();
             clearROIs();
         }});
         
-        document.getElementById('undoBtn').addEventListener('click', function(e) {{
+        document.getElementById('undoBtn_{component_key}').addEventListener('click', function(e) {{
             e.preventDefault();
             undoLastROI();
         }});
-        
-        // Initialize Streamlit component
-        function sendValue(value) {{
-            if (window.Streamlit) {{
-                window.Streamlit.setComponentValue(value);
-            }}
-        }}
         
         // Set up Streamlit connection
         if (window.Streamlit) {{
@@ -459,12 +457,11 @@ def create_mobile_canvas(img_display, canvas_w, canvas_h, stroke_width, stroke_c
     </script>
     """
     
-    # Use components.html with a unique key
+    # Use components.html without the key parameter
     component_value = components.html(
         canvas_html, 
         height=canvas_h + 150, 
-        width=canvas_w + 20,
-        key=f"mobile_canvas_{component_key}"
+        width=canvas_w + 20
     )
     
     return component_value
@@ -551,22 +548,26 @@ with col2:
         st.rerun()
 
 if is_mobile:
-    # Use mobile-optimized canvas with unique key
+    # Use mobile-optimized canvas without the key parameter
     canvas_result = create_mobile_canvas(
         img_display, 
         canvas_w, 
         canvas_h, 
         stroke_width, 
         stroke_color,
-        st.session_state.canvas_key
+        st.session_state.canvas_key  # This is now just used for ID generation, not as a key param
     )
     
     # Update session state with canvas result
     if canvas_result is not None:
-        if isinstance(canvas_result, list):
+        if isinstance(canvas_result, dict):
+            if "objects" in canvas_result:
+                st.session_state.roi_objects = canvas_result["objects"]
+            else:
+                # Try to extract objects from the result
+                st.session_state.roi_objects = canvas_result
+        elif isinstance(canvas_result, list):
             st.session_state.roi_objects = canvas_result
-        elif isinstance(canvas_result, dict) and "objects" in canvas_result:
-            st.session_state.roi_objects = canvas_result["objects"]
     
     objects = st.session_state.roi_objects
     
