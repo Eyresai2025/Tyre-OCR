@@ -29,18 +29,37 @@ CROP_OUTPUT_DIR = os.path.join(INPUT_DIR, "cropped_boxes")
 CRAFT_MODEL_PATH = os.path.join(BASE_DIR, "craft_mlt_25k.pth")
 RESULT_DIR = os.path.join(BASE_DIR, "sample_result")
 
+# Delete corrupted model if exists but is too small
+if os.path.exists(CRAFT_MODEL_PATH):
+    if os.path.getsize(CRAFT_MODEL_PATH) < 10000000:  # 10MB check
+        print("⚠ Corrupted model detected. Deleting...")
+        os.remove(CRAFT_MODEL_PATH)
+
+
 # =========================
 # AUTO DOWNLOAD CRAFT MODEL
 # =========================
 import urllib.request
 import requests
+
 if not os.path.exists(CRAFT_MODEL_PATH):
     print("⬇ Downloading CRAFT model...")
+
     url = "https://github.com/clovaai/CRAFT-pytorch/releases/download/v0.1/craft_mlt_25k.pth"
-    r = requests.get(url)
+
+    response = requests.get(url, stream=True)
+    response.raise_for_status()
+
     with open(CRAFT_MODEL_PATH, "wb") as f:
-        f.write(r.content)
-    print("✅ CRAFT model downloaded")
+        for chunk in response.iter_content(chunk_size=8192):
+            if chunk:
+                f.write(chunk)
+
+    print("✅ CRAFT model downloaded successfully")
+
+else:
+    print("✅ CRAFT model already exists")
+
 
 # =========================
 # CRAFT PARAMETERS (TUNED)
