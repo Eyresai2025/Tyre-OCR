@@ -1,8 +1,11 @@
 *.pyc
 *.swp
+*.pkl
+*.pth
 result*
 weights*
 venv/
 __pycache__/
+*.pt
 *.onnx
 .env
