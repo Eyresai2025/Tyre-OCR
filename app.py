@@ -106,7 +106,6 @@ if uploaded is not None:
 
         img = img.convert("RGB")
 
-        # Re-encode to avoid Streamlit canvas crashes
         buf = BytesIO()
         img.save(buf, format="PNG")
         buf.seek(0)
@@ -121,30 +120,20 @@ if uploaded is not None:
 
     st.caption(f"Original image size: **{orig_w} × {orig_h}px**")
 
+    # =====================================================
+    # SCALE IMAGE FOR CANVAS (MOVED INSIDE)
+    # =====================================================
+    MAX_CANVAS_WIDTH = 900
+    canvas_w = min(orig_w, MAX_CANVAS_WIDTH)
+    scale = canvas_w / orig_w
+    canvas_h = int(orig_h * scale)
+
+    img_display = img.resize((canvas_w, canvas_h), Image.BILINEAR)
+
 else:
     st.info("👆 Upload or capture an image to start")
     st.stop()
 
-
-
-# =====================================================
-# SCALE IMAGE FOR CANVAS (Laptop + Mobile Friendly)
-# =====================================================
-
-# Set a safe max width that works on both laptop & mobile
-MAX_CANVAS_WIDTH = 900  # Good balance for both devices
-
-# Ensure we never exceed original width
-canvas_w = min(orig_w, MAX_CANVAS_WIDTH)
-
-# Calculate scale
-scale = canvas_w / orig_w
-
-# Maintain aspect ratio
-canvas_h = int(orig_h * scale)
-
-# Resize image
-img_display = img.resize((canvas_w, canvas_h), Image.BILINEAR)
 
 
 # =====================================================
