@@ -116,29 +116,18 @@ if uploaded is not None:
     # =====================================================
     # SCALE IMAGE FOR CANVAS (MOVED INSIDE)
     # =====================================================
-
-
-    MAX_CANVAS_WIDTH = min(orig_w, 700)  # Safe for both desktop & mobile
-
-    canvas_w = MAX_CANVAS_WIDTH
+    MAX_CANVAS_WIDTH = 900
+    canvas_w = min(orig_w, MAX_CANVAS_WIDTH)
     scale = canvas_w / orig_w
     canvas_h = int(orig_h * scale)
 
     img_display = img.resize((canvas_w, canvas_h), Image.BILINEAR)
-
 
 else:
     st.info("👆 Upload or capture an image to start")
     st.stop()
 
 
-st.markdown("""
-<style>
-canvas {
-    touch-action: none !important;
-}
-</style>
-""", unsafe_allow_html=True)
 
 # =====================================================
 # DRAW ROI CANVAS
@@ -151,7 +140,7 @@ canvas = st_canvas(
     stroke_width=stroke_width,
     stroke_color=stroke_color,
     fill_color="rgba(0,0,0,0)",
-    update_streamlit=False,
+    update_streamlit=True,
     key="roi_canvas",
     display_toolbar=True,
 
