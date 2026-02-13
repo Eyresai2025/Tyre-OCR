@@ -181,14 +181,46 @@ for file in os.listdir(MAPPING_FOLDER):
         })
 
         cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+ 
+        # === USE EXACT SAME TEXT AS EXCEL ===
+        text_to_draw = merged_text
+
+        # Font scale from box height
+        font_scale = max(0.4, min(1.0, h / 30))
+        thickness = 2
+
+        # Measure text
+        (text_w, text_h), _ = cv2.getTextSize(
+            text_to_draw,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            font_scale,
+            thickness
+        )
+
+        # Ensure text fits inside box width
+        if text_w > w - 6:
+            font_scale *= (w - 6) / text_w
+            (text_w, text_h), _ = cv2.getTextSize(
+                text_to_draw,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                thickness
+            )
+
+        # Center text INSIDE bounding box
+        text_x = x + max(2, (w - text_w) // 2)
+        text_y = y + max(text_h + 2, (h + text_h) // 2)
+
+        # Draw text INSIDE box
         cv2.putText(
             image,
-            merged_text,
-            (x, y - 10),
+            text_to_draw,
+            (text_x, text_y),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.9,
+            font_scale,
             (0, 0, 255),
-            2
+            thickness,
+            cv2.LINE_AA
         )
 
     out_img = os.path.join(STITCHED_FOLDER, base_name + "_stitched.jpg")

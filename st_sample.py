@@ -6,43 +6,34 @@ import numpy as np
 import cv2
 from collections import OrderedDict
 from torch.autograd import Variable
-import sys
-import subprocess
-import time
-import warnings
-warnings.filterwarnings("ignore")
 
-# Import CRAFT modules
-try:
-    import craft_utils
-    import imgproc
-    from craft import CRAFT
-    import file_utils
-except ImportError as e:
-    print(f"Error importing CRAFT modules: {e}")
-    print("Make sure craft.py, craft_utils.py, imgproc.py, file_utils.py are in the same directory")
-    sys.exit(1)
+import craft_utils
+import imgproc
+from craft import CRAFT
+import subprocess
+import sys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # =========================
-# PATHS
+# PATHS (EDIT IF NEEDED)
 # =========================
+# INPUT_DIR = r"C:\Users\DELL\Downloads\CRAFT-pytorch-master (2)\CRAFT-pytorch-master\sample"     # input images (.jpg)
+# ===== CLI INPUT =====
 if len(sys.argv) > 1:
     INPUT_DIR = sys.argv[1]
 else:
-    raise ValueError("❌ INPUT_DIR not provided")
+    raise ValueError("INPUT_DIR not provided")
 
-# Create output directories
 CROP_OUTPUT_DIR = os.path.join(INPUT_DIR, "cropped_boxes")
-os.makedirs(CROP_OUTPUT_DIR, exist_ok=True)
-
 CRAFT_MODEL_PATH = os.path.join(BASE_DIR, "craft_mlt_25k.pth")
-RESULT_DIR = os.path.join(INPUT_DIR, "cropped_boxes", "visualization")
-os.makedirs(RESULT_DIR, exist_ok=True)
+RESULT_DIR = os.path.join(BASE_DIR, "sample_result")
+
+
+
 
 # =========================
-# CRAFT PARAMETERS
+# CRAFT PARAMETERS (TUNED)
 # =========================
 TEXT_THRESHOLD = 0.55
 LOW_TEXT = 0.25
@@ -54,7 +45,6 @@ POLY = False
 
 
 def copyStateDict(state_dict):
-    """Remove 'module.' prefix from state dict keys"""
     new_state_dict = OrderedDict()
     for k, v in state_dict.items():
         name = k.replace("module.", "") if k.startswith("module") else k
@@ -63,7 +53,6 @@ def copyStateDict(state_dict):
 
 
 def test_net(net, image):
-    """Run CRAFT on image and get text boxes"""
     img_resized, target_ratio, _ = imgproc.resize_aspect_ratio(
         image,
         CANVAS_SIZE,
@@ -99,18 +88,16 @@ def test_net(net, image):
     return boxes
 
 
+# -------------------------
+# Reading-order sorting
+# -------------------------
 def sort_boxes_reading_order(boxes, vertical_thresh=30):
-    """Sort boxes in reading order (top to bottom, left to right)"""
-    if len(boxes) == 0:
-        return boxes
-    
     annotated = []
     for box in boxes:
         x, y, w, h = cv2.boundingRect(box)
         annotated.append((x, y, box))
 
-    # Sort by Y coordinate (top to bottom)
-    annotated.sort(key=lambda b: b[1])
+    annotated.sort(key=lambda b: b[1])  # top → bottom
 
     rows = []
     current_row = []
@@ -132,194 +119,223 @@ def sort_boxes_reading_order(boxes, vertical_thresh=30):
 
     sorted_boxes = []
     for row in rows:
-        row.sort(key=lambda b: b[0])  # Sort by X (left to right)
+        row.sort(key=lambda b: b[0])  # left → right
         sorted_boxes.extend(row)
 
     return [b[2] for b in sorted_boxes]
 
 
+# =========================
+# MAIN
+# =========================
+# if __name__ == "__main__":
+#     os.makedirs(CROP_OUTPUT_DIR, exist_ok=True)
+#     os.makedirs(RESULT_DIR, exist_ok=True)
+
+#     device = torch.device("cuda" if USE_CUDA and torch.cuda.is_available() else "cpu")
+
+#     # Load CRAFT
+#     net = CRAFT()
+#     net.load_state_dict(
+#         copyStateDict(torch.load(CRAFT_MODEL_PATH, map_location=device))
+#     )
+
+#     if USE_CUDA:
+#         net = net.cuda()
+#         net = torch.nn.DataParallel(net)
+#         cudnn.benchmark = False
+#     else:
+#         net = net.cpu()
+
+#     net.eval()
+#     print("✅ CRAFT model loaded")
+
+#     image_list, _, _ = file_utils.get_files(INPUT_DIR)
+#     image_list = [
+#         os.path.join(INPUT_DIR, f)
+#         for f in os.listdir(INPUT_DIR)
+#         if f.lower().endswith((".jpg", ".png", ".jpeg"))
+#     ]
+
+#     for idx_img, image_path in enumerate(image_list, start=1):
+#         print(f"[{idx_img}/{len(image_list)}] Processing {image_path}")
+
+#         image = imgproc.loadImage(image_path)
+#         image_bgr = cv2.imread(image_path)
+#         orig_image = image_bgr.copy()
+#         filename = os.path.splitext(os.path.basename(image_path))[0]
+
+#         boxes = test_net(net, image)
+#         boxes = sort_boxes_reading_order(boxes)
+
+#         mapping = {"image": os.path.basename(image_path), "crops": []}
+
+#         for idx, box in enumerate(boxes, start=1):
+#             box = box.astype(np.int32)
+#             x, y, w, h = cv2.boundingRect(box)
+
+#             # skip noise
+#             if w < 20 or h < 20:
+#                 continue
+
+#             x1 = max(x, 0)
+#             y1 = max(y, 0)
+#             x2 = min(x + w, orig_image.shape[1])
+#             y2 = min(y + h, orig_image.shape[0])
+
+#             crop = orig_image[y1:y2, x1:x2]
+#             crop_name = f"{filename}_box{idx:03}.jpg"
+#             crop_path = os.path.join(CROP_OUTPUT_DIR, crop_name)
+#             cv2.imwrite(crop_path, crop)
+
+#             mapping["crops"].append({
+#                 "file": crop_name,
+#                 "box": box.tolist(),
+#                 "index": idx
+#             })
+
+#             # draw box + index for visualization
+#             cv2.polylines(image_bgr, [box.reshape(-1, 1, 2)], True, (0, 255, 0), 2)
+#             cv2.putText(
+#                 image_bgr, str(idx),
+#                 (x, y - 10),
+#                 cv2.FONT_HERSHEY_SIMPLEX,
+#                 0.8, (0, 0, 255), 2
+#             )
+
+#         # Save visualization
+#         result_path = os.path.join(RESULT_DIR, f"{filename}_result.jpg")
+#         cv2.imwrite(result_path, image_bgr)
+
+#         # Save mapping
+#         with open(os.path.join(CROP_OUTPUT_DIR, f"{filename}_mapping.json"), "w") as jf:
+#             json.dump(mapping, jf, indent=4)
+
+# if __name__ == "__main__":
+
+#     # 1. Run CRAFT (current logic already runs)
+#     print("\n🚀 Step 1: CRAFT detection completed")
+
+#     # 2. Run OCR on cropped boxes
+#     cropped_boxes_dir = CROP_OUTPUT_DIR
+#     print("\n🔠 Step 2: Running OCR...")
+#     subprocess.run([
+#         sys.executable,
+#         "Recognition.py",
+#         cropped_boxes_dir
+#     ], check=True)
+
+#     # 3. Run restitch + Excel
+#     print("\n🧵 Step 3: Restitching + Excel...")
+#     subprocess.run([
+#         sys.executable,
+#         "apo_restich.py"
+#     ], check=True)
+
+#     print("\n🎉 FULL PIPELINE COMPLETED SUCCESSFULLY")
+
+
 def main():
-    """Main function to run CRAFT detection"""
-    print(f"\n{'='*50}")
-    print(f"🚀 CRAFT Text Detection Pipeline")
-    print(f"{'='*50}")
-    print(f"📁 Input directory: {INPUT_DIR}")
-    print(f"📁 Output directory: {CROP_OUTPUT_DIR}")
-    print(f"{'='*50}\n")
 
-    # Check if model exists
-    if not os.path.exists(CRAFT_MODEL_PATH):
-        raise FileNotFoundError(f"❌ CRAFT model not found at {CRAFT_MODEL_PATH}")
+    os.makedirs(CROP_OUTPUT_DIR, exist_ok=True)
+    os.makedirs(RESULT_DIR, exist_ok=True)
 
-    # Setup device
     device = torch.device("cuda" if USE_CUDA and torch.cuda.is_available() else "cpu")
-    print(f"💻 Using device: {device}")
+    if not os.path.exists(CRAFT_MODEL_PATH):
+        raise FileNotFoundError(f"CRAFT model not found at {CRAFT_MODEL_PATH}")
 
-    # Load CRAFT model
-    print("📦 Loading CRAFT model...")
     net = CRAFT()
-    
-    try:
-        state_dict = torch.load(CRAFT_MODEL_PATH, map_location=device)
-        net.load_state_dict(copyStateDict(state_dict))
-        print("✅ CRAFT model loaded successfully")
-    except Exception as e:
-        print(f"❌ Error loading model: {e}")
-        sys.exit(1)
+    net.load_state_dict(
+        copyStateDict(torch.load(CRAFT_MODEL_PATH, map_location=device))
+    )
 
     if USE_CUDA:
         net = torch.nn.DataParallel(net).cuda()
     net.eval()
 
-    # Get list of images
+    print("CRAFT loaded")
+
     image_list = [
         os.path.join(INPUT_DIR, f)
         for f in os.listdir(INPUT_DIR)
         if f.lower().endswith((".jpg", ".png", ".jpeg"))
     ]
-    
     if not image_list:
-        print(f"❌ No images found in {INPUT_DIR}")
-        return
+        raise RuntimeError(f"No images found in {INPUT_DIR}")
 
-    print(f"📸 Found {len(image_list)} image(s) to process\n")
-
-    total_boxes = 0
-    
     for idx_img, image_path in enumerate(image_list, start=1):
-        print(f"[{idx_img}/{len(image_list)}] Processing: {os.path.basename(image_path)}")
-        
-        try:
-            # Load images
-            image = imgproc.loadImage(image_path)
-            image_bgr = cv2.imread(image_path)
-            
-            if image_bgr is None:
-                print(f"  ⚠️  Failed to load image: {image_path}")
+        print(f"[{idx_img}/{len(image_list)}] Processing {image_path}")
+
+        image = imgproc.loadImage(image_path)
+        image_bgr = cv2.imread(image_path)
+        orig_image = image_bgr.copy()
+        filename = os.path.splitext(os.path.basename(image_path))[0]
+
+        boxes = test_net(net, image)
+        boxes = sort_boxes_reading_order(boxes)
+
+        mapping = {"image": os.path.basename(image_path), "crops": []}
+
+        for idx, box in enumerate(boxes, start=1):
+            box = box.astype(np.int32)
+            x, y, w, h = cv2.boundingRect(box)
+
+            if w < 20 or h < 20:
                 continue
-                
-            orig_image = image_bgr.copy()
-            filename = os.path.splitext(os.path.basename(image_path))[0]
 
-            # Detect text boxes
-            boxes = test_net(net, image)
-            
-            if len(boxes) == 0:
-                print(f"  ⚠️  No text detected in {filename}")
-                continue
-                
-            # Sort boxes in reading order
-            boxes = sort_boxes_reading_order(boxes)
-            print(f"  📦 Detected {len(boxes)} text regions")
+            x1 = max(x, 0)
+            y1 = max(y, 0)
+            x2 = min(x + w, orig_image.shape[1])
+            y2 = min(y + h, orig_image.shape[0])
 
-            mapping = {
-                "image": os.path.basename(image_path),
-                "total_boxes": len(boxes),
-                "crops": []
-            }
+            crop = orig_image[y1:y2, x1:x2]
+            crop_name = f"{filename}_box{idx:03}.jpg"
+            crop_path = os.path.join(CROP_OUTPUT_DIR, crop_name)
+            cv2.imwrite(crop_path, crop)
 
-            # Process each box
-            for idx, box in enumerate(boxes, start=1):
-                box = box.astype(np.int32)
-                x, y, w, h = cv2.boundingRect(box)
+            mapping["crops"].append({
+                "file": crop_name,
+                "box": box.tolist(),
+                "index": idx
+            })
 
-                # Skip small boxes
-                if w < 15 or h < 15:
-                    continue
+            cv2.polylines(image_bgr, [box.reshape(-1, 1, 2)], True, (0, 255, 0), 2)
+            cv2.putText(
+                image_bgr, str(idx),
+                (x, y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8, (0, 0, 255), 2
+            )
 
-                x1 = max(x, 0)
-                y1 = max(y, 0)
-                x2 = min(x + w, orig_image.shape[1])
-                y2 = min(y + h, orig_image.shape[0])
+        cv2.imwrite(
+            os.path.join(RESULT_DIR, f"{filename}_result.jpg"),
+            image_bgr
+        )
 
-                # Crop and save
-                crop = orig_image[y1:y2, x1:x2]
-                crop_name = f"{filename}_box{idx:03d}.jpg"
-                crop_path = os.path.join(CROP_OUTPUT_DIR, crop_name)
-                cv2.imwrite(crop_path, crop)
+        with open(
+            os.path.join(CROP_OUTPUT_DIR, f"{filename}_mapping.json"),
+            "w"
+        ) as jf:
+            json.dump(mapping, jf, indent=4)
 
-                mapping["crops"].append({
-                    "file": crop_name,
-                    "box": box.tolist(),
-                    "index": idx,
-                    "bbox": [x1, y1, x2, y2]
-                })
 
-                # Draw visualization
-                cv2.polylines(image_bgr, [box.reshape(-1, 1, 2)], True, (0, 255, 0), 2)
-                cv2.putText(
-                    image_bgr, str(idx),
-                    (x, y - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7, (0, 0, 255), 2
-                )
+    print("Step 1: CRAFT done")
 
-            # Save visualization
-            result_path = os.path.join(RESULT_DIR, f"{filename}_result.jpg")
-            cv2.imwrite(result_path, image_bgr)
-            print(f"  ✅ Saved visualization to {os.path.basename(result_path)}")
+    subprocess.run([
+        sys.executable,
+        os.path.join(BASE_DIR, "st_Recognition.py"),
+        CROP_OUTPUT_DIR
+    ], check=True)
 
-            # Save mapping
-            mapping_path = os.path.join(CROP_OUTPUT_DIR, f"{filename}_mapping.json")
-            with open(mapping_path, "w") as jf:
-                json.dump(mapping, jf, indent=2)
-            print(f"  ✅ Saved mapping to {os.path.basename(mapping_path)}")
-            
-            total_boxes += len(mapping["crops"])
+    print("OCR done")
 
-        except Exception as e:
-            print(f"  ❌ Error processing {image_path}: {e}")
-            continue
+    subprocess.run([
+        sys.executable,
+        os.path.join(BASE_DIR, "st_apo_restich.py"),
+        INPUT_DIR
+    ], check=True)
 
-    print(f"\n{'='*50}")
-    print(f"✅ CRAFT detection completed!")
-    print(f"📊 Total text regions detected: {total_boxes}")
-    print(f"{'='*50}\n")
-
-    # =============================================
-    # STEP 2: Run OCR on cropped boxes
-    # =============================================
-    print("🔠 Step 2: Running OCR on cropped text regions...")
-    
-    ocr_script = os.path.join(BASE_DIR, "st_Recognition.py")
-    if os.path.exists(ocr_script):
-        try:
-            subprocess.run([
-                sys.executable,
-                ocr_script,
-                CROP_OUTPUT_DIR
-            ], check=True)
-            print("✅ OCR completed successfully")
-        except subprocess.CalledProcessError as e:
-            print(f"❌ OCR failed with error code {e.returncode}")
-            sys.exit(1)
-    else:
-        print(f"⚠️  OCR script not found at {ocr_script}")
-        print("   Please ensure st_Recognition.py exists")
-
-    # =============================================
-    # STEP 3: Run restitching
-    # =============================================
-    print("\n🧵 Step 3: Restitching and generating Excel...")
-    
-    restitch_script = os.path.join(BASE_DIR, "st_apo_restich.py")
-    if os.path.exists(restitch_script):
-        try:
-            subprocess.run([
-                sys.executable,
-                restitch_script,
-                INPUT_DIR
-            ], check=True)
-            print("✅ Restitching completed successfully")
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Restitching failed with error code {e.returncode}")
-            sys.exit(1)
-    else:
-        print(f"⚠️  Restitch script not found at {restitch_script}")
-
-    print(f"\n{'='*50}")
-    print("🎉 FULL PIPELINE COMPLETED SUCCESSFULLY!")
-    print(f"{'='*50}")
+    print("FULL PIPELINE DONE")
 
 
 if __name__ == "__main__":

@@ -93,8 +93,15 @@ def main(input_folder=None):
     image_paths = []
     for ext in ("*.jpg", "*.png", "*.jpeg"):
         image_paths.extend(
-            glob.glob(os.path.join(input_folder, "**", ext), recursive=True)
+            glob.glob(os.path.join(input_folder, ext))   # 🔥 NO recursive
         )
+
+    # 🔥 VERY IMPORTANT: Remove already OCR-processed images
+    image_paths = [
+        p for p in image_paths
+        if "_ocr" not in os.path.basename(p)
+    ]
+
 
     if not image_paths:
         print(f"⚠️ No crop images found in {input_folder}, skipping OCR")
