@@ -157,23 +157,55 @@ else:
 # DRAW ROI
 # =====================================================
 if IS_MOBILE:
-    st.info("👉 Use finger or Apple Pencil to draw rectangle")
-
+    st.info("📱 Mobile: draw roughly over the ROI (freehand). I'll convert it to a rectangle automatically.")
+    drawing_mode = "freedraw"
+else:
+    drawing_mode = "rect"
+ 
 canvas = st_canvas(
     background_image=img_display,
     height=canvas_h,
     width=canvas_w,
-    drawing_mode="rect",
+    drawing_mode=drawing_mode,
     stroke_width=stroke_width,
     stroke_color=stroke_color,
-    fill_color="rgba(255,0,0,0.2)" if IS_MOBILE else "rgba(0,0,0,0)",
+    fill_color="rgba(255,0,0,0.15)" if IS_MOBILE else "rgba(0,0,0,0)",
     update_streamlit=True,
     key="roi_canvas",
     display_toolbar=True,
 )
-
+ 
 objects = canvas.json_data["objects"] if canvas.json_data else []
-
+ 
+def obj_to_bbox_pixels(obj):
+    """Return (left, top, width, height) in DISPLAY pixels for both rect and freedraw."""
+    # Normal rect object
+    if obj.get("type") != "path" or "path" not in obj:
+        left = float(obj.get("left", 0))
+        top = float(obj.get("top", 0))
+        w = float(obj.get("width", 0)) * float(obj.get("scaleX", 1))
+        h = float(obj.get("height", 0)) * float(obj.get("scaleY", 1))
+        return left, top, w, h
+ 
+    # Freedraw path: compute bbox of all points
+    xs, ys = [], []
+    for seg in obj["path"]:
+        # seg looks like ["M", x, y] or ["L", x, y] or ["Q", ...]
+        nums = [v for v in seg[1:] if isinstance(v, (int, float))]
+        for i in range(0, len(nums) - 1, 2):
+            xs.append(nums[i])
+            ys.append(nums[i + 1])
+ 
+    if not xs or not ys:
+        return 0, 0, 0, 0
+ 
+    # Fabric path coords are relative to object's origin; add obj left/top
+    left = float(obj.get("left", 0)) + min(xs)
+    top = float(obj.get("top", 0)) + min(ys)
+    w = max(xs) - min(xs)
+    h = max(ys) - min(ys)
+    return left, top, w, h
+ 
 st.write(f"{len(objects)} ROI(s) drawn")
 
 # =====================================================
@@ -194,17 +226,19 @@ if st.button("Run CRAFT + OCR + Restitch"):
     st.info("Old ROI data cleared")
 
     for roi_id, obj in enumerate(objects, start=1):
-        left = int(obj["left"] / scale)
-        top = int(obj["top"] / scale)
-        width = int(obj["width"] * obj.get("scaleX", 1) / scale)
-        height = int(obj["height"] * obj.get("scaleY", 1) / scale)
-
+        left_d, top_d, width_d, height_d = obj_to_bbox_pixels(obj)
+    
+        left = int(left_d / scale)
+        top = int(top_d / scale)
+        width = int(width_d / scale)
+        height = int(height_d / scale)
+    
         x1, y1 = max(0, left), max(0, top)
         x2, y2 = min(orig_w, x1 + width), min(orig_h, y1 + height)
-
+    
         if x2 <= x1 or y2 <= y1:
             continue
-
+    
         roi = img_np[y1:y2, x1:x2]
         Image.fromarray(roi).save(os.path.join(ROI_DIR, f"roi_{roi_id:02}.jpg"))
 
